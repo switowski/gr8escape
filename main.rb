@@ -106,12 +106,17 @@ def direction_to_coordinates(current_location, direction)
   nil
 end
 
-def go_to_target(current_location)
-  next_move, path_size = find_next_location(current_location)
-  next_direction = coordinates_to_direction(current_location, next_move)
+def get_target(current_location)
+  next_move, path_size = find_my_next_location(current_location)
+  direction = coordinates_to_direction(current_location, next_move)
+  return direction, path_size
 end
 
-def find_next_location(current_location)
+def find_my_next_location(current_location)
+  find_next_location(current_location, $myId)
+end
+
+def find_next_location(current_location, player_id)
   # Breadth First Search algorithm for path finding
   # TODO: if it's to slow, replace it with A*
   frontier = Queue.new
@@ -121,7 +126,7 @@ def find_next_location(current_location)
 
   while not frontier.empty?
     current = frontier.pop
-    if is_target?(current)
+    if is_target?(current, player_id)
       target = current
       break
     end
@@ -146,9 +151,9 @@ def find_next_location(current_location)
   return next_move, path_size
 end
 
-def is_target?(current_location)
+def is_target?(current_location, player_id)
   cx, cy = current_location
-  tx, ty = $players[$myId]['target']
+  tx, ty = $players[player_id]['target']
   if (tx && tx == cx) || (ty && ty == cy)
     return true
   end
@@ -189,21 +194,61 @@ def save_walls
   end
 end
 
+def put_wall (location, orientation)
+  puts location[0], location[1], orientation.capitalize
+end
+
 def print_decision
   # Write an action using puts
   # To debug: STDERR.puts 'Debug messages...'
   # action: LEFT, RIGHT, UP, DOWN or 'putX putY putOrientation' for wall
   # Try to go right and if it's not possible - down and right
-  direction = go_to_target($players[$myId]['current_location'])
-  puts direction
+  my_direction, my_distance = get_target($players[$myId]['current_location'])
+  # See which enemy is closer to the end
+  STDERR.puts $players
+  if $myId != 0
+    _, player0_distance = get_target($players[0]['current_location'])
+  end
+  if $myId != 2
+    _, player1_distance = get_target($players[1]['current_location'])
+  end
+  if $playerCount > 2 and $myId != 2
+    _, player2_distance = get_target($players[2]['current_location'])
+  end
+  if player0_distance and player1_distance
+    if player0_distance > player1_distance
+      worst_enemy = 1
+      enemy_distance = player1_distance
+    else
+      worst_enemy = 0
+      enemy_distance = player0_distance
+    end
+  elsif player0_distance and player2_distance
+    if player0_distance > player2_distance
+      worst_enemy = 2
+      enemy_distance = player2_distance
+    else
+      worst_enemy = 0
+      enemy_distance = player0_distance
+    end
+  elsif player1_distance and player2_distance
+    if player1_distance > player2_distance
+      worst_enemy = 2
+      enemy_distance = player2_distance
+    else
+      worst_enemy = 1
+      enemy_distance = player1_distance
+    end
+  end
 
-  # if can_go?($players[$myId]['current_location'], 'RIGHT')
-  #   puts 'RIGHT'
-  # elsif can_go?($players[$myId]['current_location'], 'UP')
-  #   puts 'UP'
-  # elsif can_go?($players[$myId]['current_location'], 'DOWN')
-  #   puts 'DOWN'
-  # end
+  STDERR.puts "enemy distance #{enemy_distance}, my distance: #{my_distance}"
+  if enemy_distance < my_distance && $players[$myId]['walls'] > 0
+    # put a wall on enemy position
+    put_wall($players[worst_enemy]['current_location'], 'H')
+  else
+    puts direction
+  end
+
 end
 
 def main
