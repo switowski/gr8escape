@@ -249,7 +249,7 @@ def can_build_wall?(cx, cy, orientation)
       # The wall is overlapping with another wall
       return false
     end
-    if cx > 8 || cx == 0
+    if cx > 8 || cy == 0
       # The wall is going outside of boundaries
       return false
     end
@@ -259,7 +259,7 @@ def can_build_wall?(cx, cy, orientation)
     end
   end
   if orientation == 'V'
-    if cy > 8 || cy == 0
+    if cy > 8 || cx == 0
       # The wall is going outside of boundaries
       return false
     end
@@ -355,6 +355,11 @@ def print_decision
   end
   # For the first 3 rounds don't bother with building walls
   if $round_number < 4
+    move
+    return
+  end
+  # If we don't have any wall left, just move
+  if $players[$myId]['walls'] == 0
     move
     return
   end
