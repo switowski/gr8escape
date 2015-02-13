@@ -129,7 +129,8 @@ end
 
 def get_target(current_location, player_id)
   STDERR.puts "getting target for #{player_id}"
-  if is_target?(current_location, player_id)
+  STDERR.puts "His current location #{current_location}"
+  if escaped?(player_id)
     STDERR.puts "He escaped"
     # Player already reached the target, ignore him
     return current_location, 99
@@ -181,7 +182,7 @@ def find_next_location(current_location, player_id)
     found_new = false
     previous = nil
     $neighbors[current].each do |neighbor|
-      if not came_from.has_key?(neighbor)
+      if !came_from.key?(neighbor)
         frontier << neighbor
         came_from[neighbor] = current
         found_new = true
@@ -216,6 +217,10 @@ def is_target?(current_location, player_id)
     return true
   end
   false
+end
+
+def escaped?(player_id)
+  $players[player_id]['current_location'] == [-1, -1]
 end
 
 def in_boundaries?(current_location, direction)
@@ -305,14 +310,17 @@ def can_build_wall?(cx, cy, orientation)
   return true
 end
 
-def get_possible_wall_positions(id, distance)
-  current_location = $players[id]['current_location']
+def get_possible_wall_positions(current_location, distance)
+  # Returns all possible locations within distance from location where we can
+  # put a wall.
+  # Possible location means a field that player can reach, we don't check if
+  # there is a wall there.
   current_neighbors = [current_location]
   distance.times do
     new_possible_neighbors = current_neighbors.dup
     current_neighbors.each do |neighbor|
       $neighbors[neighbor].each do |possible_neighbor|
-        if not current_neighbors.include?(possible_neighbor)
+        if !current_neighbors.include?(possible_neighbor)
           new_possible_neighbors << possible_neighbor
         end
       end
@@ -322,37 +330,66 @@ def get_possible_wall_positions(id, distance)
   current_neighbors
 end
 
-def build_wall(enemy_id)
+def remove_neighbor(fake_wall, neighbors_hash)
+  cx, cy, orientation = fake_wall
+  list_of_removed = [] # for debugging purposes
+  if orientation == "V"
+    list_of_removed << neighbors_hash[[cx, cy]].delete([cx - 1, cy])
+    list_of_removed << neighbors_hash[[cx - 1,cy]].delete([cx, cy])
+    list_of_removed << neighbors_hash[[cx, cy + 1]].delete([cx - 1, cy + 1])
+    list_of_removed << neighbors_hash[[cx - 1, cy + 1]].delete([cx, cy + 1])
+  elsif orientation == "H"
+    list_of_removed << neighbors_hash[[cx, cy]].delete([cx, cy - 1])
+    list_of_removed << neighbors_hash[[cx, cy - 1]].delete([cx, cy])
+    list_of_removed << neighbors_hash[[cx + 1, cy]].delete([cx + 1, cy - 1])
+    list_of_removed << neighbors_hash[[cx + 1, cy - 1]].delete([cx + 1, cy])
+  end
+  STDERR.puts "Removed: #{list_of_removed}"
+end
+
+def build_wall(enemy_id, distance = 1, slowdown = nil)
   # Get all neighbor fields for enemy and compare how much we will delay him
   # depending on where we put the wall
   # Return true if we have build a wall
-  neighbors = get_possible_wall_positions(enemy_id, 2)
-  STDERR.puts "Possible neighbors: #{neighbors}"
+  enemy_location = $players[enemy_id]['current_location']
+  neighbors = get_possible_wall_positions(enemy_location, distance)
+  STDERR.puts "Possible walls locations: #{neighbors}"
   current_distance = $players[enemy_id]['distance']
   max_delay = 0
   best_wall = []
-  walls_backup = $walls.dup
+  neighbors_backup = $neighbors.dup
   neighbors.each do |neighbor|
-    ['V', 'H'].each do |o|
-      $walls = walls_backup.dup  # dup is very important here
+    STDERR.puts "neighbor: #{neighbor}"
+    %w(V H).each do |o|
       possible_wall = neighbor.dup
       possible_wall << o
       STDERR.puts "possible_wall: #{possible_wall}"
       # Check if we can build there
-      if ! can_build_wall?(*possible_wall)
+      if !can_build_wall?(*possible_wall)
         STDERR.puts "We can't build here: #{possible_wall}"
         next
       end
-      $walls << possible_wall
-      # For a moment we gonna replace the real walls with $walls + 1 wall more
+      # Deep copy through Marshalling trick
+      # http://ruby.about.com/od/advancedruby/a/deepcopy.htm
+      $neighbors = Marshal.load(Marshal.dump(neighbors_backup))
+      # For a moment we gonna replace the real $neighbors hash with this fake
+      # one to see it the distance changed
+      STDERR.puts "neighbors before: #{$neighbors[neighbor]}"
+      STDERR.puts "neighbors length before: #{$neighbors[neighbor].size}"
+      STDERR.puts "neighbors_backup length before: #{neighbors_backup[neighbor].size}"
+      remove_neighbor(possible_wall, $neighbors)
       new_distance = simulate_distance(enemy_id)
+      # Restore the original content of $neighbors hash
+      $neighbors = Marshal.load(Marshal.dump(neighbors_backup))
+      STDERR.puts "neighbors after: #{$neighbors[neighbor]}"
+      STDERR.puts "neighbors length after: #{$neighbors[neighbor].size}"
+      STDERR.puts "neighbors_backup length after: #{neighbors_backup[neighbor].size}"
       if new_distance.nil?
         # Player can't reach the exit, we can't build here
         STDERR.puts "Won't reach exit"
         next
       end
       STDERR.puts "New distance: #{new_distance}"
-      $walls = walls_backup.dup
       if new_distance - current_distance > max_delay
         max_delay = new_distance - current_distance
         STDERR.puts "New max delay: #{max_delay}"
@@ -360,7 +397,7 @@ def build_wall(enemy_id)
       end
     end
   end
-  if max_delay > 0
+  if max_delay > slowdown
     # We have a best wall here, build it
     STDERR.puts "Best wall for enemy at #{$players[enemy_id]['current_location']} \
                  is: #{best_wall} and it will slow him down by #{max_delay}"
@@ -375,12 +412,7 @@ def move
   puts $players[$myId]['direction']
 end
 
-def print_decision
-  # Write an action using puts
-  # To debug: STDERR.puts 'Debug messages...'
-  # action: LEFT, RIGHT, UP, DOWN or 'putX putY putOrientation' for wall
-
-  STDERR.puts "Printing decision"
+def get_better_enemy
   # Get the better enemy (the one closer to the end)
   ids = [0,1]
   ids << 2 if $playerCount == 3
@@ -393,20 +425,40 @@ def print_decision
       enemy_id = ids[1]
     end
   end
-  # For the first 3 rounds don't bother with building walls
-  if $round_number < 4
-    move
-    return
-  end
+end
+
+def efficient_wall(enemy_id)
+  # Builds a wall that will slow the enemy by at least 3 moves and returns
+  # true if the wall was built or false if it wasn't
+  build_wall(enemy_id, 1, 3)
+end
+
+
+def print_decision
+  # Write an action using puts
+  # To debug: STDERR.puts 'Debug messages...'
+  # action: LEFT, RIGHT, UP, DOWN or 'putX putY putOrientation' for wall
+
+  STDERR.puts "Printing decision"
+  enemy_id = get_better_enemy
+
   # If we don't have any wall left, just move
   if $players[$myId]['walls'] == 0
     move
     return
   end
-  # If the enemy distance is closer to the target, put a wall in his path
-  if $players[enemy_id]['distance'] < $players[$myId]['distance']
-    STDERR.puts "Will try to build a wall"
-    built = build_wall(enemy_id)
+  # Build wall:
+  # If it's possible to slow down enemy more than 3 moves with that wall
+  wall = efficient_wall(enemy_id)
+  if wall
+    # If the wall was built, end our turn
+    return
+  end
+  # Build wall:
+  # If the enemy is 1 step from the finish
+  if $players[enemy_id]['distance'] == 1
+    STDERR.puts "Will try to build a wall to stop enemy from winning"
+    built = build_wall(enemy_id, 1, 1)
     if not built
       move
     end
