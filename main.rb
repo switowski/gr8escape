@@ -35,6 +35,20 @@ def save_players
   end
 end
 
+def calculate_neighbors
+  $neighbors = Hash.new{ |a,b| a[b] = Array.new } # Clear neighbors Hash
+  (0..8).each do |x|
+    (0..8).each do |y|
+      # STDERR.puts "Calculating field #{x}, #{y}"
+      $neighbors[[x,y]] << [x, y + 1] if can_go?([x,y], "DOWN")
+      $neighbors[[x,y]] << [x, y - 1] if can_go?([x,y], "UP")
+      $neighbors[[x,y]] << [x + 1, y] if can_go?([x,y], "RIGHT")
+      $neighbors[[x,y]] << [x - 1, y] if can_go?([x,y], "LEFT")
+    end
+  end
+  # STDERR.puts $neighbors
+end
+
 def calculate_next_move
   # Store my_location as global variable for easier access
   $my_location = $players[$myId]['current_location']
@@ -62,12 +76,12 @@ def can_go?(current_location, direction)
       return false
     end
   when "LEFT"
-    if $walls.include?([cx - 1, cy, 'V']) || $walls.include?([cx - 1, cy - 1, 'V'])
+    if $walls.include?([cx, cy, 'V']) || $walls.include?([cx, cy - 1, 'V'])
       # STDERR.puts "Can't go #{direction}, there are following walls: #{$walls.to_a}"
       return false
     end
   when "UP"
-    if $walls.include?([cx, cy - 1, 'H']) || $walls.include?([cx - 1, cy - 1, 'H'])
+    if $walls.include?([cx, cy, 'H']) || $walls.include?([cx - 1, cy, 'H'])
       # STDERR.puts "Can't go #{direction}, there are following walls: #{$walls.to_a}"
       return false
     end
@@ -81,6 +95,9 @@ def can_go?(current_location, direction)
 end
 
 def coordinates_to_direction(current_location, next_location)
+  if next_location.nil?
+    return nil
+  end
   cx, cy = current_location
   nx, ny = next_location
   if nx == cx + 1 && ny == cy
@@ -107,12 +124,16 @@ def direction_to_coordinates(current_location, direction)
   when "DOWN"
     return cy - 1, cx
   end
-  STDERR.puts "Error in direction_to_coordinates. Incorrect coordinates: \
-               current: #{current_location}, direction: #{direction}"
   nil
 end
 
 def get_target(current_location, player_id)
+  STDERR.puts "getting target for #{player_id}"
+  if is_target?(current_location, player_id)
+    STDERR.puts "He escaped"
+    # Player already reached the target, ignore him
+    return current_location, 99
+  end
   next_move, path_size = find_next_location(current_location, player_id)
   direction = coordinates_to_direction(current_location, next_move)
   return direction, path_size
@@ -143,18 +164,34 @@ def find_next_location(current_location, player_id)
   frontier << current_location
   came_from = {}
   came_from[current_location] = nil
+  path_size = 0
 
   while not frontier.empty?
+    path_size += 1
+    if path_size > 500
+      # It seems like it's impossible to reach the target
+      STDERR.puts "Can't find a way"
+      return nil, nil
+    end
     current = frontier.pop
     if is_target?(current, player_id)
       target = current
       break
     end
-    get_neighbors(current).each do |neighbor|
+    found_new = false
+    previous = nil
+    $neighbors[current].each do |neighbor|
       if not came_from.has_key?(neighbor)
         frontier << neighbor
         came_from[neighbor] = current
+        found_new = true
+      else
+        previous = neighbor
       end
+    end
+    # We need to allow to go back if there is no other option
+    if !found_new && !previous.nil?
+      frontier << previous
     end
   end
 
@@ -165,7 +202,7 @@ def find_next_location(current_location, player_id)
     current = came_from[current]
     path << current
   end
-  STDERR.puts "current path: #{path}" if player_id == $myId
+  STDERR.puts "current path: #{path.slice(0..-2)}" if player_id == $myId
   path_size = path.size - 1
   next_move = path.slice(-2) # -2 since -1 is the current_location
   return next_move, path_size
@@ -179,14 +216,6 @@ def is_target?(current_location, player_id)
     return true
   end
   false
-end
-
-def get_neighbors(current_location)
-  # Returns an array with neighbor fields coordinates
-  cx, cy = current_location
-  possible_neighbors = [ [cx + 1, cy], [cx - 1, cy],
-                         [cx, cy + 1], [cx, cy - 1] ]
-  possible_neighbors.select { |target| can_go?(current_location, target) }
 end
 
 def in_boundaries?(current_location, direction)
@@ -216,22 +245,22 @@ def save_walls
     wallY = wallY.to_i
     $walls << [wallX, wallY, wallOrientation]
   end
-  STDERR.puts "List of walls #{$walls.to_a}"
+  # STDERR.puts "List of walls #{$walls.to_a}"
 end
 
 def put_wall (cx, cy, orientation)
   puts "#{cx} #{cy} #{orientation}"
 end
 
-def get_player_id_from_location(location)
-  # Takes the field and returns the id of player on that field or nil if empty
-  $players.each_pair do |key, value|
-    if value['current_location'] == location
-      return key
-    end
-  end
-  return nil
-end
+# def get_player_id_from_location(location)
+#   # Takes the field and returns the id of player on that field or nil if empty
+#   $players.each_pair do |key, value|
+#     if value['current_location'] == location
+#       return key
+#     end
+#   end
+#   return nil
+# end
 
 def can_build_wall?(cx, cy, orientation)
   # Returns true if you can build a wall on a location specified
@@ -239,8 +268,8 @@ def can_build_wall?(cx, cy, orientation)
     # There is already a wall here
     return false
   end
-  if cx < 0 || cy < 0
-    # Can't be less than 0
+  if cx < 0 || cy < 0 || cx > 8 || cy > 8
+    # Can't be less than 0 or more than 8
     return false
   end
   if orientation == 'H'
@@ -249,7 +278,7 @@ def can_build_wall?(cx, cy, orientation)
       # The wall is overlapping with another wall
       return false
     end
-    if cx > 8 || cy == 0
+    if cx > 7 || cy == 0
       # The wall is going outside of boundaries
       return false
     end
@@ -259,7 +288,7 @@ def can_build_wall?(cx, cy, orientation)
     end
   end
   if orientation == 'V'
-    if cy > 8 || cx == 0
+    if cy > 7 || cx == 0
       # The wall is going outside of boundaries
       return false
     end
@@ -276,23 +305,28 @@ def can_build_wall?(cx, cy, orientation)
   return true
 end
 
-def get_neighbors_for_wall(id, distance)
-  cx, cy = $players[id]['current_location']
-  possible_neighbors = [[cx-2, cy], [cx-1, cy], [cx+1, cy], [cx+2, cy],
-                        [cx, cy-2], [cx, cy-1], [cx, cy+1], [cx, cy+2]]
-  neighbors = possible_neighbors.select do |neighbor|
-    can_go?([cx, cy], neighbor)
+def get_possible_wall_positions(id, distance)
+  current_location = $players[id]['current_location']
+  current_neighbors = [current_location]
+  distance.times do
+    new_possible_neighbors = current_neighbors.dup
+    current_neighbors.each do |neighbor|
+      $neighbors[neighbor].each do |possible_neighbor|
+        if not current_neighbors.include?(possible_neighbor)
+          new_possible_neighbors << possible_neighbor
+        end
+      end
+    end
+    current_neighbors = new_possible_neighbors.dup
   end
-  # We can always build a wall on the current field of enemy
-  neighbors << [cx, cy]
-  return neighbors
+  current_neighbors
 end
 
 def build_wall(enemy_id)
   # Get all neighbor fields for enemy and compare how much we will delay him
   # depending on where we put the wall
   # Return true if we have build a wall
-  neighbors = get_neighbors_for_wall(enemy_id, 2)
+  neighbors = get_possible_wall_positions(enemy_id, 2)
   STDERR.puts "Possible neighbors: #{neighbors}"
   current_distance = $players[enemy_id]['distance']
   max_delay = 0
@@ -312,6 +346,11 @@ def build_wall(enemy_id)
       $walls << possible_wall
       # For a moment we gonna replace the real walls with $walls + 1 wall more
       new_distance = simulate_distance(enemy_id)
+      if new_distance.nil?
+        # Player can't reach the exit, we can't build here
+        STDERR.puts "Won't reach exit"
+        next
+      end
       STDERR.puts "New distance: #{new_distance}"
       $walls = walls_backup.dup
       if new_distance - current_distance > max_delay
@@ -341,6 +380,7 @@ def print_decision
   # To debug: STDERR.puts 'Debug messages...'
   # action: LEFT, RIGHT, UP, DOWN or 'putX putY putOrientation' for wall
 
+  STDERR.puts "Printing decision"
   # Get the better enemy (the one closer to the end)
   ids = [0,1]
   ids << 2 if $playerCount == 3
@@ -381,6 +421,7 @@ def main
   loop do
     save_players
     save_walls
+    calculate_neighbors
     calculate_next_move
     print_decision
   end
