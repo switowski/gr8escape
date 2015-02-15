@@ -1,9 +1,8 @@
 STDOUT.sync = true # DO NOT REMOVE
 require 'set'
 
-
 # TODO:
-# Sprawdzić tą powtórkę: http://www.codingame.com/replay/32065924
+# Dopracować efektywną ścianę
 
 # Plan:
 # if there is a chance to slow down enemy by 3 or more moves with a wall, build a wall
@@ -211,8 +210,8 @@ def find_next_location(current_location, player_id)
     current = came_from[current]
     path << current
   end
-  STDERR.puts "current path: #{path.slice(0..-2)}" if player_id == $myId
-  # STDERR.puts "enemy 2 path: #{path.slice(0..-2)}" if player_id == 2
+  # STDERR.puts "current path: #{path.slice(0..-2)}" if player_id == $myId
+  STDERR.puts "enemy 0 path: #{path.slice(0..-2)}" if player_id == 0
   path_size = path.size - 1
   next_move = path.slice(-2) # -2 since -1 is the current_location
   return next_move, path_size
@@ -370,6 +369,7 @@ def build_wall(enemy_id, distance = 1, slowdown = nil)
   # depending on where we put the wall
   # Return true if we have build a wall
   enemy_location = $players[enemy_id]['current_location']
+  STDERR.puts "Enemy location: #{enemy_location}"
   neighbors = get_possible_wall_positions(enemy_location, distance)
   # STDERR.puts "Possible walls locations: #{neighbors}"
   current_distance = $players[enemy_id]['distance']
@@ -429,7 +429,7 @@ def build_wall(enemy_id, distance = 1, slowdown = nil)
     # If the best wall is one field from the boundary, try to build it next to
     # wall so it's more efficient
     STDERR.puts "Wall before improvement: #{best_wall}"
-    best_wall = improve_wall(best_wall, enemy_id)
+    better_wall = improve_wall(best_wall, enemy_id)
     STDERR.puts "Wall after improvement: #{best_wall}"
     put_wall(*best_wall)
     return true
@@ -446,6 +446,9 @@ def improve_wall(wall_location, enemy_id)
   # We need to check if enemy won't be blocked after improvement
   neighbors_backup = $neighbors.dup
   $neighbors = Marshal.load(Marshal.dump(neighbors_backup))
+  current_distance = simulate_distance(enemy_id)
+  # And if the "improved" wall is not worse than previous one (if it doesn't
+  # slow down by less distance)
   if orientation == 'H'
     if ex == 1 && wx == 1 && can_build_wall?(0, wy, orientation)
       better_wall = 0, wy, orientation
@@ -469,7 +472,8 @@ def improve_wall(wall_location, enemy_id)
   end
   if better_wall != []
     remove_neighbor(better_wall, $neighbors)
-    if !simulate_distance(enemy_id).nil?
+    new_distance = simulate_distance(enemy_id)
+    if !new_distance.nil? && new_distance >= current_distance
       $neighbors = Marshal.load(Marshal.dump(neighbors_backup))
       return better_wall
     end
@@ -499,7 +503,7 @@ end
 def efficient_wall(enemy_id)
   # Builds a wall that will slow the enemy by at least 3 moves and returns
   # true if the wall was built or false if it wasn't
-  build_wall(enemy_id, 2, 3)
+  build_wall(enemy_id, 2, 4)
 end
 
 def me_and_enemy_next_to_wall?(enemy_id)
