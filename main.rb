@@ -563,9 +563,20 @@ def print_decision
   end
 
   if enemies.size == 2
-    # If we have 2 enemies and we haven't build efficient wall, just move
-    move
-    return
+    # If we have 2 enemies and we haven't build efficient wall:
+    # If I'm last and both of them are one step from exit, we need to stop one
+    STDERR.puts "MYID: #{$myId}"
+    STDERR.puts "dist1: #{$players[enemies[0]]['distance']}"
+    STDERR.puts "dist2: #{$players[enemies[0]]['distance']}"
+    if $myId == 2 && $players[enemies[0]]['distance'] == 1 &&
+       $players[enemies[1]]['distance'] == 1
+      STDERR.puts "gonna build"
+      built = build_wall(enemies[0], 2, 1)
+      return if built
+    else
+      move
+      return
+    end
   end
   enemy_id = enemies[0]
   # Build wall if the enemy is 1 step from the finish
