@@ -1,6 +1,10 @@
 STDOUT.sync = true # DO NOT REMOVE
 require 'set'
 
+
+# TODO:
+# Sprawdzić tą powtórkę: http://www.codingame.com/replay/32065924
+
 # Plan:
 # if there is a chance to slow down enemy by 3 or more moves with a wall, build a wall
 # if there is enemy closer to the end than I am and he has 3 or less moves to win, build a wall
@@ -132,8 +136,8 @@ def direction_to_coordinates(current_location, direction)
 end
 
 def get_target(current_location, player_id)
-  # STDERR.puts "getting target for #{player_id}"
-  # STDERR.puts "His current location #{current_location}"
+  STDERR.puts "getting target for #{player_id}"
+  STDERR.puts "His current location #{current_location}"
   if escaped?(player_id)
     # STDERR.puts "He escaped"
     # Player already reached the target, ignore him
@@ -172,11 +176,10 @@ def find_next_location(current_location, player_id)
   path_size = 0
 
   while not frontier.empty?
-    # STDERR.puts "Size of came_from: #{(came_from).size}, path_size: #{path_size}"
     path_size += 1
     if path_size > 1000
       # It seems like it's impossible to reach the target
-      # STDERR.puts "Can't find a way"
+      STDERR.puts "Can't find a way"
       return nil, nil
     end
     current = frontier.pop
@@ -208,7 +211,8 @@ def find_next_location(current_location, player_id)
     current = came_from[current]
     path << current
   end
-  # STDERR.puts "current path: #{path.slice(0..-2)}" if player_id == $myId
+  STDERR.puts "current path: #{path.slice(0..-2)}" if player_id == $myId
+  # STDERR.puts "enemy 2 path: #{path.slice(0..-2)}" if player_id == 2
   path_size = path.size - 1
   next_move = path.slice(-2) # -2 since -1 is the current_location
   return next_move, path_size
@@ -388,10 +392,23 @@ def build_wall(enemy_id, distance = 1, slowdown = nil)
       $neighbors = Marshal.load(Marshal.dump(neighbors_backup))
       # For a moment we gonna replace the real $neighbors hash with this fake
       # one to see it the distance changed
+      my_distance = simulate_distance($myId)
       remove_neighbor(possible_wall, $neighbors)
       new_distance = simulate_distance(enemy_id)
+      # Make sure other player can pass with this wall
+      other_enemy = get_enemies_ids
+      other_enemy.delete(enemy_id)
+      if other_enemy.size == 1 && !simulate_distance(other_enemy[0]).nil?
+        next
+      end
+      # Make sure it won't slow me down
+      my_new_distance = simulate_distance($myId)
+      if my_new_distance.nil? || my_new_distance > my_distance
+        next
+      end
       # Restore the original content of $neighbors hash
       $neighbors = Marshal.load(Marshal.dump(neighbors_backup))
+      STDERR.puts "new_distance: #{new_distance}"
       if new_distance.nil?
         # Player can't reach the exit, we can't build here
         # STDERR.puts "Won't reach exit"
@@ -411,9 +428,9 @@ def build_wall(enemy_id, distance = 1, slowdown = nil)
     #              is: #{best_wall} and it will slow him down by #{max_delay}"
     # If the best wall is one field from the boundary, try to build it next to
     # wall so it's more efficient
-    # STDERR.puts "Wall before improvement: #{best_wall}"
+    STDERR.puts "Wall before improvement: #{best_wall}"
     best_wall = improve_wall(best_wall, enemy_id)
-    # STDERR.puts "Wall after improvement: #{best_wall}"
+    STDERR.puts "Wall after improvement: #{best_wall}"
     put_wall(*best_wall)
     return true
   end
@@ -424,6 +441,7 @@ def improve_wall(wall_location, enemy_id)
   enemy_location = $players[enemy_id]['current_location']
   wx, wy, orientation = wall_location
   ex, ey = enemy_location
+  etx, ety = $players[enemy_id]['target']
   better_wall = []
   # We need to check if enemy won't be blocked after improvement
   neighbors_backup = $neighbors.dup
@@ -432,14 +450,20 @@ def improve_wall(wall_location, enemy_id)
     if ex == 1 && wx == 1 && can_build_wall?(0, wy, orientation)
       better_wall = 0, wy, orientation
     end
-    if ex == 6 && wx == 6 && can_build_wall?(7, wy, orientation)
+    if ex == 7 && wx == 6 && can_build_wall?(7, wy, orientation)
       better_wall = 7, wy, orientation
     end
   else
-    if ey == 1 && wy == 1 && can_build_wall?(wx, 0, orientation)
+    if etx == 0 && ey == 1 && wy == 1 && can_build_wall?(wx, 0, orientation)
       better_wall =  wx, 0, orientation
     end
-    if ey == 6 && wy == 6 && can_build_wall?(wx, 7, orientation)
+    if etx == 0  && ey == 7 && wy == 6 && can_build_wall?(wx, 7, orientation)
+      better_wall =  wx, 7, orientation
+    end
+    if etx == 8 && ey == 1 && wy == 1 && can_build_wall?(wx, 0, orientation)
+      better_wall =  wx, 0, orientation
+    end
+    if etx == 8  && ey == 7 && wy == 6 && can_build_wall?(wx, 7, orientation)
       better_wall =  wx, 7, orientation
     end
   end
@@ -457,6 +481,7 @@ end
 
 def move
   # Puts the direction string
+  STDERR.puts "My decision here"
   puts $players[$myId]['direction']
 end
 
@@ -513,7 +538,7 @@ def print_decision
   # To debug: STDERR.puts 'Debug messages...'
   # action: LEFT, RIGHT, UP, DOWN or 'putX putY putOrientation' for wall
 
-  # STDERR.puts "Printing decision"
+  STDERR.puts "Printing decision"
   # If we don't have any wall left, just move
   if $players[$myId]['walls'] == 0
     move
@@ -524,7 +549,8 @@ def print_decision
     # If there are 2 enemies, we can't fight them both. Only build a wall
     # if it will slow any of them by more than 2 moves
     wall_1 = efficient_wall(enemies[0])
-    wall = efficient_wall(enemies[1]) if !wall_1
+    return if wall_1
+    wall = efficient_wall(enemies[1])
     return if wall
   else
     # See if we can build a wall that will delay the enemy by 3 or more moves
@@ -546,7 +572,7 @@ def print_decision
     return if built
   end
   if me_and_enemy_next_to_wall?(enemy_id)
-    if $players[$myId][distance] == 2
+    if $players[$myId]['distance'] == 2
       # If we have 2 moves remaining, secure my path with a wall
       built = secure_finish
       return if built
