@@ -211,7 +211,7 @@ def find_next_location(current_location, player_id)
     path << current
   end
   # STDERR.puts "current path: #{path.slice(0..-2)}" if player_id == $myId
-  STDERR.puts "enemy 0 path: #{path.slice(0..-2)}" if player_id == 0
+  # STDERR.puts "enemy 0 path: #{path.slice(0..-2)}" if player_id == 0
   path_size = path.size - 1
   next_move = path.slice(-2) # -2 since -1 is the current_location
   return next_move, path_size
@@ -344,7 +344,7 @@ def get_possible_wall_positions(current_location, distance)
     end
     current_neighbors = new_possible_neighbors.dup
   end
-  current_neighbors
+  current_neighbors.uniq
 end
 
 def remove_neighbor(fake_wall, neighbors_hash)
@@ -371,7 +371,7 @@ def build_wall(enemy_id, distance = 1, slowdown = nil)
   enemy_location = $players[enemy_id]['current_location']
   STDERR.puts "Enemy location: #{enemy_location}"
   neighbors = get_possible_wall_positions(enemy_location, distance)
-  # STDERR.puts "Possible walls locations: #{neighbors}"
+  STDERR.puts "Possible walls locations: #{neighbors}"
   current_distance = $players[enemy_id]['distance']
   max_delay = 0
   best_wall = []
@@ -381,7 +381,7 @@ def build_wall(enemy_id, distance = 1, slowdown = nil)
     %w(V H).each do |o|
       possible_wall = neighbor.dup
       possible_wall << o
-      # STDERR.puts "possible_wall: #{possible_wall}"
+      STDERR.puts "possible_wall: #{possible_wall}"
       # Check if we can build there
       if !can_build_wall?(*possible_wall)
         # STDERR.puts "We can't build here: #{possible_wall}"
@@ -395,30 +395,32 @@ def build_wall(enemy_id, distance = 1, slowdown = nil)
       my_distance = simulate_distance($myId)
       remove_neighbor(possible_wall, $neighbors)
       new_distance = simulate_distance(enemy_id)
-      # Make sure other player can pass with this wall
-      other_enemy = get_enemies_ids
-      other_enemy.delete(enemy_id)
-      if other_enemy.size == 1 && !simulate_distance(other_enemy[0]).nil?
-        next
-      end
-      # Make sure it won't slow me down
-      my_new_distance = simulate_distance($myId)
-      if my_new_distance.nil? || my_new_distance > my_distance
-        next
-      end
-      # Restore the original content of $neighbors hash
-      $neighbors = Marshal.load(Marshal.dump(neighbors_backup))
-      STDERR.puts "new_distance: #{new_distance}"
       if new_distance.nil?
         # Player can't reach the exit, we can't build here
         # STDERR.puts "Won't reach exit"
         next
       end
+      # Make sure other player can pass with this wall
+      other_enemy = get_enemies_ids
+      other_enemy.delete(enemy_id)
+      if other_enemy.size == 1 && simulate_distance(other_enemy[0]).nil?
+        next
+      end
+      # Make sure it won't slow me down more than enemy !
+      my_new_distance = simulate_distance($myId)
+      if my_new_distance.nil? ||
+         (my_new_distance - my_distance) > (new_distance - current_distance)
+        STDERR.puts "It will slow me down too much"
+        next
+      end
+      # Restore the original content of $neighbors hash
+      $neighbors = Marshal.load(Marshal.dump(neighbors_backup))
+      STDERR.puts "new_distance: #{new_distance}"
       # STDERR.puts "New distance: #{new_distance}"
       if new_distance - current_distance >= max_delay
         max_delay = new_distance - current_distance
         best_wall = possible_wall
-        # STDERR.puts "New max delay: #{max_delay} for wall in #{best_wall}"
+        STDERR.puts "New max delay: #{max_delay} for wall in #{best_wall}"
       end
     end
   end
@@ -571,7 +573,10 @@ def print_decision
     if $myId == 2 && $players[enemies[0]]['distance'] == 1 &&
        $players[enemies[1]]['distance'] == 1
       STDERR.puts "gonna build"
-      built = build_wall(enemies[0], 2, 1)
+      built = build_wall(enemies[0], 1, 1)
+      # It's possible that that wall would slow me down, maybe we can stop the
+      # other enemy ?
+      built = build_wall(enemies[1], 1, 1) if !built
       return if built
     else
       move
