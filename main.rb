@@ -19,7 +19,6 @@ def init
 
   $players = {} # Hash with players informations
   $walls = Set.new # Array of walls information
-  $round_number = 0 # Stores the round number
 
   $players[0] = {'target' => [8, nil]}
   $players[1] = {'target' => [0, nil]}
@@ -30,7 +29,6 @@ def init
 end
 
 def save_players
-  $round_number += 1
   $playerCount.times do |i|
     # x: x-coordinate of the player
     # y: y-coordinate of the player
@@ -526,17 +524,185 @@ def me_and_enemy_next_to_wall?(enemy_id)
 end
 
 def secure_finish
-  if $my_location == [0, 6] && can_build_wall?(1, 7, 'V')
-    put_wall(1, 7, 'V')
-    return true
-  elsif $my_location == [6, 8] && can_build_wall?(7, 8, 'H')
-    put_wall(7, 8, 'H')
-    return true
-  elsif $my_location == [8, 6] && can_build_wall?(8, 7, 'V')
-    put_wall(8, 7, 'V')
+  # Single wall
+  secured = secure_single_wall
+  STDERR.puts "We can secure single wall" if secured.size == 3
+  # Tunnel with a roof
+  secured = secure_tunnel_with_roof if secured.size != 3
+  STDERR.puts "We can secure double wall" if secured.size != 3
+  return secured
+end
+
+def secure_single_wall
+  # Legend:
+  # x - my dragon
+  # $ - arena wall
+  # - or | - single wall
+
+  # Try to secure single wall next to wall like that:
+  #  --$
+  # x  $
+  # $$$$
+  tx, ty = $players[$myId]['target']
+  if ty == 8
+    # Going down
+    if $my_location == [0, 6] && can_build_wall?(1, 7, 'V')
+      # Left wall
+      return [1, 7, 'V']
+    elsif $my_location == [8, 6] && can_build_wall?(8, 7, 'V')
+      # Right wall
+      return [8, 7, 'V']
+    end
+  elsif tx == 8
+    # Going right
+    if $my_location == [6, 0] && can_build_wall?(7, 1, 'H')
+      # Upper wall
+      return [7, 1, 'H']
+    elsif $my_location == [6, 8] && can_build_wall?(7, 8, 'H')
+      # Down wall
+      return [7, 8, 'H']
+    end
+  elsif tx == 0
+    # Going left
+    if $my_location == [2, 0] && can_build_wall?(0, 1, 'H')
+      # Upper wall
+      return [0, 1, 'H']
+    elsif $my_location == [2, 8] && can_build_wall?(0, 8, 'H')
+      # Down wall
+      return [0, 8, 'H']
+    end
+  end
+  return []
+end
+
+def secure_tunnel_with_roof
+  # Legend:
+  # x - my dragon
+  # $ - arena wall
+  # - or | - single wall
+  # * - enemy wall
+
+  # Try to secure a tunnel of two wall and one wall above or below:
+  # ----$
+  #     $
+  # |x* $
+  # | * $
+  cx, cy = $my_location
+  tx, ty = $players[$myId]['target']
+  # Going left
+  if tx == 8
+    # Step 1
+    if $walls.include?([cx + 1, cy, 'V']) && can_build_wall?(cx, cy, 'V')
+      return [cx, cy, 'V']
+    elsif $walls.include?([cx+1, cy-1, 'V']) && can_build_wall?(cx, cy-1, 'V')
+      return [cx, cy - 1, 'V']
+    end
+    # Step 2
+    if $walls.include?([cx + 1, cy, 'V']) && $walls.include?([cx, cy, 'V'])
+      if can_build_wall?(cx, cy - 1, 'H')
+        # Roof above tunnel
+        return [cx, cy - 1, 'H']
+      elsif can_build_wall?(cx, cy + 3, 'H')
+        # Roof below tunnel
+        return [cx, cy + 3, 'H']
+      end
+    elsif $walls.include?([cx+1, cy-1, 'V']) && $walls.include?([cx, cy-1, 'V'])
+      if can_build_wall?(cx, cy - 2, 'H')
+        return [cx, cy - 2, 'H']
+      elsif can_build_wall?(cx, cy + 2, 'H')
+        return [cx, cy + 2, 'H']
+      end
+    end
+  elsif tx == 0
+    # Going right
+    # Step 1
+    if $walls.include?([cx, cy, 'V']) && can_build_wall?(cx + 1, cy, 'V')
+      return [cx + 1, cy, 'V']
+    elsif $walls.include?([cx, cy-1, 'V']) && can_build_wall?(cx+1, cy-1, 'V')
+      return [cx + 1, cy - 1, 'V']
+    end
+    # Step 2
+    if $walls.include?([cx, cy, 'V']) && $walls.include?([cx + 1, cy, 'V'])
+      if can_build_wall?(cx - 1, cy - 1, 'H')
+        # Roof above tunnel
+        return [cx - 1, cy - 1, 'H']
+      elsif can_build_wall?(cx - 1, cy + 3, 'H')
+        # Roof below tunnel
+        return [cx - 1, cy + 3, 'H']
+      end
+    elsif $walls.include?([cx, cy-1, 'V']) && $walls.include?([cx+1, cy-1, 'V'])
+      if can_build_wall?(cx - 1, cy - 2, 'H')
+        return [cx - 1, cy - 2, 'H']
+      elsif can_build_wall?(cx - 1, cy + 2, 'H')
+        return [cx - 1, cy + 2, 'H']
+      end
+    end
+  elsif ty == 8
+    # Going down
+    # Step 1
+    if $walls.include?([cx, cy + 1, 'H']) && can_build_wall?(cx, cy, 'H')
+      return [cx, cy, 'H']
+    elsif $walls.include?([cx-1, cy+1, 'H']) && can_build_wall?(cx-1, cy, 'H')
+      return [cx-1, cy, 'H']
+    end
+    # Step 2
+    if $walls.include?([cx, cy + 1, 'H']) && $walls.include?([cx, cy, 'H'])
+      if can_build_wall?(cx - 1, cy, 'V')
+        # Roof left from tunnel
+        return [cx - 1, cy, 'V']
+      elsif can_build_wall?(cx + 3, cy, 'V')
+        # Roof right from tunnel
+        return [cx + 3, cy, 'V']
+      end
+    elsif $walls.include?([cx-1, cy+1, 'H']) && $walls.include?([cx-1, cy, 'H'])
+      if can_build_wall?(cx - 2, cy, 'V')
+        return [cx - 2, cy, 'V']
+      elsif can_build_wall?(cx + 2, cy, 'V')
+        return [cx + 2, cy, 'V']
+      end
+    end
+  end
+  return []
+end
+
+def enemy_close_to_win?(enemy_id)
+  # Returns true if the enemy is close to winning:
+  # Either he is one space from finish
+  # Or he is 2 spaces and he is in the corner, so we won't be able to put wall
+  # later there, like that:
+  # $ |
+  # $ |x
+  # $
+  # $$$$$
+  if $players[enemy_id]['distance'] == 1
     return true
   end
-  false
+  # Corner cases
+  ex, ey = $players[enemy_id]['current_location']
+  tx, ty = $players[enemy_id]['target']
+  if tx == 0 && ex == 1
+    # Going left
+    if $walls.include?([1, 6, 'V']) && ey == 7
+      return true
+    elsif $walls.include?([1, 1, 'V']) && ey == 1
+      return true
+    end
+  elsif tx == 8 && ex == 7
+    # Going right
+    if $walls.include?([8, 6, 'V']) && ey == 7
+      return true
+    elsif $walls.include?([8, 1, 'V']) && ey == 1
+      return true
+    end
+  elsif ty == 8 && ey == 7
+    # Going down
+    if $walls.include?([1, 8, 'H']) && ex == 1
+      return true
+    elsif $walls.include?([6, 8, 'H']) && ex == 7
+      return true
+    end
+  end
+  return false
 end
 
 def print_decision
@@ -551,28 +717,14 @@ def print_decision
     return
   end
   enemies = get_enemies_ids
-  if enemies.size == 2
-    # If there are 2 enemies, we can't fight them both. Only build a wall
-    # if it will slow any of them by more than 2 moves
-    wall_1 = efficient_wall(enemies[0])
-    return if wall_1
-    wall = efficient_wall(enemies[1])
-    return if wall
-  else
-    # See if we can build a wall that will delay the enemy by 3 or more moves
-    wall = efficient_wall(enemies[0])
-    return if wall
-  end
 
   if enemies.size == 2
-    # If we have 2 enemies and we haven't build efficient wall:
     # If I'm last and both of them are one step from exit, we need to stop one
     STDERR.puts "MYID: #{$myId}"
     STDERR.puts "dist1: #{$players[enemies[0]]['distance']}"
     STDERR.puts "dist2: #{$players[enemies[0]]['distance']}"
     if $myId == 2 && $players[enemies[0]]['distance'] == 1 &&
        $players[enemies[1]]['distance'] == 1
-      STDERR.puts "gonna build"
       built = build_wall(enemies[0], 1, 1)
       # It's possible that that wall would slow me down, maybe we can stop the
       # other enemy ?
@@ -586,18 +738,43 @@ def print_decision
   enemy_id = enemies[0]
   # Build wall if the enemy is 1 step from the finish
   # STDERR.puts "Enemy: #{enemy_id} distance: #{$players[enemy_id]['distance']}"
-  if $players[enemy_id]['distance'] == 1
-    # STDERR.puts "Will try to build a wall to stop enemy from winning"
+  if enemy_close_to_win?(enemy_id)
+    STDERR.puts "Will try to build a wall to stop enemy from winning"
     built = build_wall(enemy_id, 2, 1)
     return if built
   end
-  if me_and_enemy_next_to_wall?(enemy_id)
-    if $players[$myId]['distance'] == 2
-      # If we have 2 moves remaining, secure my path with a wall
-      built = secure_finish
-      return if built
+
+  if $players[$myId]['distance'] == 2
+    # If we have 2 moves remaining, secure my path various methods
+    STDERR.puts "Trying to secure my victory"
+    possible_wall = secure_finish
+    if possible_wall.size == 3
+      # Make sure we are not blocking anyone
+      neighbors_backup = $neighbors.dup
+      $neighbors = Marshal.load(Marshal.dump(neighbors_backup))
+      new_enemy_distance = simulate_distance(enemy_id)
+      $neighbors = Marshal.load(Marshal.dump(neighbors_backup))
+      if !new_enemy_distance.nil?
+        put_wall(*possible_wall)
+        return
+      end
     end
   end
+
+  if enemies.size == 2
+    # If there are 2 enemies, we can't fight them both. Only build a wall
+    # if it will slow any of them by more than 2 moves
+    wall_1 = efficient_wall(enemies[0])
+    return if wall_1
+    wall = efficient_wall(enemies[1])
+    return if wall
+  else
+    # See if we can build a wall that will delay the enemy by 3 or more moves
+    wall = efficient_wall(enemies[0])
+    return if wall
+  end
+
+  # end
   # If we got that far, move
   move
 end
